@@ -1,15 +1,17 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { collection, query, where, getDocs, doc, runTransaction, Timestamp, addDoc, writeBatch } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, runTransaction, writeBatch } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Item, Banner, OrderItem, PaymentMode } from '../lib/types';
 import { useAuth } from '../lib/auth';
 import { cn } from '../lib/utils';
-import { ShoppingBag, Minus, Plus, Utensils, CreditCard, Banknote, X, Loader2, User as UserIcon } from 'lucide-react';
+import { ShoppingBag, Minus, Plus, Utensils, CreditCard, Banknote, X, Loader2, ArrowRight } from 'lucide-react';
+import AnalogClockPicker from '../components/AnalogClockPicker';
+// using analog clock for scheduled times
+
 
 export default function StudentMenu() {
   const { user } = useAuth();
-  const location = useLocation();
   const navigate = useNavigate();
   const searchParams = new URL(window.location.href).searchParams;
   const tableParam = searchParams.get('table');
@@ -22,6 +24,8 @@ export default function StudentMenu() {
   const [selectedCategory, setSelectedCategory] = useState(categoryParam || 'All');
   
   const [checkoutName, setCheckoutName] = useState('');
+  const [orderType, setOrderType] = useState<'now' | 'scheduled'>('now');
+  const [scheduledTimeStr, setScheduledTimeStr] = useState<string>('');
 
   useEffect(() => {
     if (user?.name) setCheckoutName(user.name);
@@ -99,7 +103,6 @@ export default function StudentMenu() {
   };
 
   const getQuantity = (id: string) => cart.find(i => i.id === id)?.quantity || 0;
-  
   const cartTotal = useMemo(() => cart.reduce((acc, curr) => acc + (curr.price * curr.quantity), 0), [cart]);
 
   const placeOrder = async () => {
@@ -113,10 +116,27 @@ export default function StudentMenu() {
       alert('Please enter your name for the order.');
       return;
     }
+    
+    let scheduledTimestamp = undefined;
+    if (orderType === 'scheduled') {
+      if (!scheduledTimeStr) {
+        alert('Please select a time for your scheduled order.');
+        return;
+      }
+      const [hours, minutes] = scheduledTimeStr.split(':').map(Number);
+      const scheduledDate = new Date();
+      scheduledDate.setHours(hours, minutes, 0, 0);
+      
+      const minTime = new Date(Date.now() + 29 * 60000); // ~30 mins future
+      if (scheduledDate < minTime) {
+        alert('Scheduled time must be at least 30 minutes from now.');
+        return;
+      }
+      scheduledTimestamp = scheduledDate.getTime();
+    }
 
     setIsPlacingOrder(true);
     try {
-      // Create order Number sequence
       const today = new Date().toDateString();
       const counterRef = doc(db, 'counters', 'dailyOrders');
       
@@ -146,12 +166,13 @@ export default function StudentMenu() {
         totalAmount: cartTotal,
         paymentMode,
         paymentStatus: paymentMode === 'Online' && isSimulatedPaymentPaid ? 'Paid' : 'Pending',
-        status: 'Placed',
+        status: orderType === 'now' ? 'Placed' : 'Scheduled',
         timePlaced: Date.now(),
-        items: cart.map(c => ({ id: c.id, name: c.name, quantity: c.quantity, price: c.price })) // Denormalized array for dashboard
+        orderType,
+        scheduledTime: scheduledTimestamp || null,
+        items: cart.map(c => ({ id: c.id, name: c.name, quantity: c.quantity, price: c.price })) 
       });
 
-      // Add order items to subcollection
       cart.forEach(item => {
         const itemRef = doc(collection(db, `orders/${orderRef.id}/orderItems`));
         batch.set(itemRef, {
@@ -177,40 +198,24 @@ export default function StudentMenu() {
   };
 
   if (fullLoading) {
-    return <div className="min-h-screen flex items-center justify-center bg-gray-50"><Loader2 className="w-8 h-8 animate-spin text-primary-600"/></div>;
+    return <div className="h-screen flex items-center justify-center bg-gray-50"><Loader2 className="w-8 h-8 animate-spin text-primary-600"/></div>;
   }
 
-  return (
-    <div className="min-h-screen bg-gray-50 pb-24">
-      {/* Navbar */}
-      <nav className="sticky top-0 z-40 bg-white border-b border-gray-100 px-4 py-3 flex items-center justify-between shadow-sm">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-primary-100 text-primary-600 rounded-lg flex items-center justify-center">
-            <Utensils className="w-5 h-5" />
-          </div>
-          <span className="font-bold tracking-tight">CanteenGo</span>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="bg-gray-100 px-3 py-1 rounded-full text-sm font-semibold text-gray-700">
-            {tableName}
-          </div>
-          {user ? (
-            <button onClick={() => navigate('/profile')} className="w-8 h-8 rounded-full bg-primary-50 text-primary-600 flex items-center justify-center cursor-pointer hover:bg-primary-100 transition-colors">
-              <UserIcon className="w-5 h-5" />
-            </button>
-          ) : (
-             <button onClick={() => navigate('/login?redirect=/menu')} className="text-sm font-bold text-primary-600">
-               Log in
-             </button>
-          )}
-        </div>
-      </nav>
+  // Calculate safe bottom padding so content isn't hidden beneath the checkout bar + dock nav
+  const bottomPaddingClass = cart.length > 0 ? "pb-40" : "pb-6"; // DockNav is absolute at bottom, handled by StudentLayout pb-32
 
-      {/* Main Content */}
-      <main className="max-w-3xl mx-auto px-4 pt-6">
+  return (
+    <div className="bg-gray-50 min-h-screen">
+      <div className="flex items-center gap-2 px-4 mb-4">
+         <div className="bg-primary-50 px-3 py-1.5 rounded-full text-xs font-black tracking-widest uppercase text-primary-600 shadow-sm border border-primary-100">
+           {tableName}
+         </div>
+      </div>
+
+      <main className={cn("max-w-md mx-auto px-4", bottomPaddingClass)}>
         {/* Banners */}
         {banners.length > 0 && (
-          <div className="mb-8 w-full relative rounded-2xl overflow-hidden shadow-lg h-48 bg-gray-200">
+          <div className="mb-6 w-full relative rounded-3xl overflow-hidden shadow-sm h-40 bg-gray-200">
             <div 
               className="flex transition-transform duration-700 ease-out h-full"
               style={{ transform: `translateX(-${currentBanner * 100}%)`}}
@@ -218,30 +223,30 @@ export default function StudentMenu() {
               {banners.map((b) => (
                 <div key={b.id} className="min-w-full h-full relative">
                   <img src={b.imageUrl} alt={b.title} className="absolute inset-0 w-full h-full object-cover" />
-                  <div className="absolute inset-0 bg-gradient-to-r from-black/70 to-transparent flex flex-col justify-center px-8">
-                    <h3 className="text-xl font-bold text-white mb-1">{b.title}</h3>
-                    <p className="text-sm text-gray-200">{b.description}</p>
+                  <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-transparent flex flex-col justify-center px-6">
+                    <h3 className="text-xl font-bold text-white mb-1 shadow-sm">{b.title}</h3>
+                    <p className="text-xs text-gray-200 font-medium">{b.description}</p>
                   </div>
                 </div>
               ))}
             </div>
-            <div className="absolute bottom-4 left-0 right-0 flex justify-center gap-2">
+            <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-1.5">
               {banners.map((_, i) => (
-                <div key={i} className={cn("w-2 h-2 rounded-full", currentBanner === i ? "bg-white w-4" : "bg-white/50")} />
+                <div key={i} className={cn("w-1.5 h-1.5 rounded-full", currentBanner === i ? "bg-white w-3" : "bg-white/50")} />
               ))}
             </div>
           </div>
         )}
 
-        {/* Categories */}
-        <div className="flex overflow-x-auto hide-scrollbar gap-2 mb-6 -mx-4 px-4 pb-2">
+        {/* Horizontal Category Tabs */}
+        <div className="flex overflow-x-auto hide-scrollbar gap-2.5 mb-6 -mx-4 px-4 pb-2 snap-x">
           {categories.map(c => (
             <button
               key={c}
               onClick={() => setSelectedCategory(c)}
               className={cn(
-                "whitespace-nowrap px-5 py-2 rounded-full text-sm font-medium transition-all shadow-sm",
-                selectedCategory === c ? "bg-primary-600 text-white" : "bg-white border border-gray-200 text-gray-700 hover:bg-gray-50"
+                "snap-start shrink-0 whitespace-nowrap px-5 py-2.5 rounded-full text-sm font-bold transition-colors shadow-sm",
+                selectedCategory === c ? "bg-slate-800 text-white" : "bg-white border border-gray-200 text-slate-600"
               )}
             >
               {c}
@@ -249,42 +254,43 @@ export default function StudentMenu() {
           ))}
         </div>
 
-        {/* Items Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {/* Mobile List View */}
+        <div className="flex flex-col gap-4">
           {filteredItems.map(item => {
             const qty = getQuantity(item.id);
             return (
               <div 
                 key={item.id} 
                 className={cn(
-                  "bg-white p-3 rounded-2xl shadow-sm border border-gray-100 flex gap-4 transition-opacity",
+                  "bg-white p-3 rounded-3xl shadow-sm border border-slate-100 flex items-center gap-4 transition-opacity",
                   !item.available && "opacity-60 grayscale"
                 )}
               >
-                <div className="w-24 h-24 shrink-0 rounded-xl overflow-hidden bg-gray-100">
-                  <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover" />
+                <div className="w-20 h-20 shrink-0 rounded-2xl overflow-hidden bg-slate-50 relative">
+                  <img src={item.imageUrl} alt={item.name} className="absolute inset-0 w-full h-full object-cover" />
                 </div>
-                <div className="flex-1 flex flex-col justify-between py-1">
-                  <div>
-                    <h4 className="font-semibold text-gray-900 leading-tight">{item.name}</h4>
-                    <p className="text-xs text-primary-600 font-medium mb-1">{item.category}</p>
-                    <p className="text-sm font-bold text-gray-900">₹{item.price}</p>
-                  </div>
-                  
+                
+                <div className="flex-1 min-w-0">
+                  <h4 className="font-bold text-slate-900 truncate">{item.name}</h4>
+                  <p className="text-xs text-slate-500 font-medium mt-0.5 truncate">{item.description}</p>
+                  <p className="text-sm font-black text-slate-900 mt-1">₹{item.price}</p>
+                </div>
+                
+                <div className="shrink-0 flex items-center pr-1">
                   {!item.available ? (
-                    <div className="text-xs font-semibold text-red-500 bg-red-50 px-2 py-1 rounded w-fit mt-2">Unavailable</div>
+                    <span className="text-[10px] font-bold text-red-500 bg-red-50 px-2 py-1 rounded uppercase">Sold Out</span>
                   ) : qty > 0 ? (
-                    <div className="flex items-center gap-3 mt-2 bg-gray-50 rounded-lg p-1 w-fit border border-gray-200">
-                      <button onClick={() => handleUpdateCart(item, -1)} className="p-1 rounded-md bg-white shadow-sm text-gray-600 hover:text-primary-600"><Minus className="w-4 h-4"/></button>
-                      <span className="font-semibold text-gray-900 w-4 text-center">{qty}</span>
-                      <button onClick={() => handleUpdateCart(item, 1)} className="p-1 rounded-md bg-primary-600 text-white shadow-sm hover:bg-primary-700"><Plus className="w-4 h-4"/></button>
+                    <div className="flex items-center gap-3 bg-primary-50 rounded-2xl p-1 border border-primary-100">
+                      <button onClick={() => handleUpdateCart(item, -1)} className="p-1.5 rounded-xl bg-white shadow-sm text-slate-600 active:scale-90 transition-transform"><Minus className="w-3.5 h-3.5"/></button>
+                      <span className="font-bold text-primary-700 w-3 text-center text-sm">{qty}</span>
+                      <button onClick={() => handleUpdateCart(item, 1)} className="p-1.5 rounded-xl bg-primary-600 text-white shadow-sm active:scale-90 transition-transform"><Plus className="w-3.5 h-3.5"/></button>
                     </div>
                   ) : (
                     <button 
                       onClick={() => handleUpdateCart(item, 1)}
-                      className="mt-2 text-sm font-semibold text-primary-600 bg-primary-50 hover:bg-primary-100 ml-auto px-4 py-1.5 rounded-lg transition-colors border border-primary-100"
+                      className="text-xs font-bold text-primary-600 bg-primary-50 px-4 py-2 rounded-2xl active:scale-95 transition-transform"
                     >
-                      ADD +
+                      ADD
                     </button>
                   )}
                 </div>
@@ -294,66 +300,69 @@ export default function StudentMenu() {
         </div>
       </main>
 
-      {/* Sticky Cart Bar */}
+      {/* Sticky Cart Bar (Above DockNav) */}
       {cart.length > 0 && (
-        <div className="fixed bottom-4 left-4 right-4 max-w-3xl mx-auto z-40">
+        <div className="fixed bottom-[88px] left-0 right-0 px-4 z-[45] md:max-w-md md:left-1/2 md:-translate-x-1/2 transform transition-transform">
           <button 
             onClick={() => setIsCartOpen(true)}
-            className="w-full bg-gray-900 text-white p-4 rounded-2xl shadow-xl flex items-center justify-between hover:bg-gray-800 transition-colors"
+            className="w-full bg-slate-900 text-white p-4 rounded-[2rem] shadow-2xl flex items-center justify-between active:scale-[0.98] transition-transform"
           >
-            <div className="flex items-center gap-3">
-              <div className="bg-white/20 p-2 rounded-xl">
-                <ShoppingBag className="w-5 h-5" />
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center">
+                <ShoppingBag className="w-5 h-5 text-white" />
               </div>
-              <div className="text-left">
-                <p className="font-semibold">{cart.reduce((a,c)=>a+c.quantity,0)} Items</p>
-                <p className="text-xs text-gray-300">View Cart</p>
+              <div className="text-left flex flex-col">
+                <span className="font-bold text-sm">{cart.reduce((a,c)=>a+c.quantity,0)} Items added</span>
+                <span className="text-xs text-white/70 font-semibold tracking-wide uppercase">View Cart <ArrowRight className="w-3 h-3 inline ml-1 -mt-0.5" /></span>
               </div>
             </div>
-            <div className="text-xl font-bold">
+            <div className="text-xl font-black bg-white/10 px-4 py-2 rounded-full">
               ₹{cartTotal}
             </div>
           </button>
         </div>
       )}
 
-      {/* Cart Sidebar / Bottom Sheet */}
+      {/* Cart Bottom Sheet */}
       {isCartOpen && (
-        <div className="fixed inset-0 z-50 flex justify-end">
-          <div className="absolute inset-0 bg-gray-900/40 backdrop-blur-sm" onClick={() => setIsCartOpen(false)} />
-          <div className="relative w-full max-w-sm bg-white h-full flex flex-col shadow-2xl animate-in slide-in-from-right-full">
-            <div className="p-5 border-b border-gray-100 flex items-center justify-between bg-white">
-              <h2 className="text-xl font-bold text-gray-900">Your Cart</h2>
-              <button onClick={() => setIsCartOpen(false)} className="p-2 text-gray-400 hover:text-gray-600 bg-gray-50 rounded-full"><X className="w-5 h-5"/></button>
+        <div className="fixed inset-0 z-[60] flex flex-col justify-end">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity" onClick={() => setIsCartOpen(false)} />
+          <div className="relative w-full md:max-w-md md:mx-auto bg-white rounded-t-[2.5rem] flex flex-col shadow-2xl animate-in slide-in-from-bottom-[100%] duration-300 max-h-[85vh]">
+            <div className="flex justify-center pt-3 pb-2">
+              <div className="w-12 h-1.5 bg-slate-200 rounded-full"></div>
+            </div>
+            <div className="px-6 pb-4 flex items-center justify-between">
+              <h2 className="text-2xl font-black text-slate-800">Your Cart</h2>
+              <button onClick={() => setIsCartOpen(false)} className="p-2 bg-slate-100 rounded-full text-slate-400"><X className="w-5 h-5"/></button>
             </div>
             
-            <div className="flex-1 overflow-y-auto p-5">
+            <div className="flex-1 overflow-y-auto px-6 hide-scrollbar mb-4">
               {cart.map(c => {
                 const itemConfig = items.find(i => i.id === c.id);
                 return (
-                  <div key={c.id} className="flex justify-between items-center mb-6">
-                    <div>
-                      <h4 className="font-semibold text-gray-900">{c.name}</h4>
-                      <p className="text-gray-500 text-sm">₹{c.price}</p>
+                  <div key={c.id} className="flex justify-between items-center py-4 border-b border-slate-50 last:border-0">
+                    <div className="flex flex-col">
+                      <span className="font-bold text-slate-800">{c.name}</span>
+                      <span className="text-slate-500 font-semibold text-sm">₹{c.price}</span>
                     </div>
-                    <div className="flex items-center gap-3 bg-gray-50 rounded-lg p-1 border border-gray-200">
-                      <button onClick={() => handleUpdateCart(itemConfig!, -1)} className="p-1 rounded-md bg-white shadow-sm text-gray-600"><Minus className="w-4 h-4"/></button>
-                      <span className="font-semibold text-gray-900 w-4 text-center">{c.quantity}</span>
-                      <button onClick={() => handleUpdateCart(itemConfig!, 1)} className="p-1 rounded-md bg-primary-600 text-white shadow-sm"><Plus className="w-4 h-4"/></button>
+                    <div className="flex items-center gap-3 bg-slate-50 rounded-2xl p-1.5 border border-slate-100">
+                      <button onClick={() => handleUpdateCart(itemConfig!, -1)} className="p-1.5 rounded-xl bg-white shadow-sm text-slate-600 active:scale-95"><Minus className="w-4 h-4"/></button>
+                      <span className="font-bold text-slate-900 w-4 text-center">{c.quantity}</span>
+                      <button onClick={() => handleUpdateCart(itemConfig!, 1)} className="p-1.5 rounded-xl bg-slate-800 text-white shadow-sm active:scale-95"><Plus className="w-4 h-4"/></button>
                     </div>
                   </div>
                 );
               })}
             </div>
 
-            <div className="p-5 bg-gray-50 border-t border-gray-100">
-              <div className="flex justify-between text-lg font-bold mb-4">
-                <span>Total</span>
-                <span>₹{cartTotal}</span>
+            <div className="p-6 bg-white border-t border-slate-100 pb-8">
+              <div className="flex justify-between items-end mb-6">
+                <span className="font-bold text-slate-500 uppercase tracking-widest text-xs">Total Amount</span>
+                <span className="text-3xl font-black text-slate-900">₹{cartTotal}</span>
               </div>
               <button 
-                onClick={() => setIsCheckoutModalOpen(true)}
-                className="w-full bg-primary-600 hover:bg-primary-700 text-white font-bold py-4 rounded-xl shadow-lg shadow-primary-600/20"
+                onClick={() => { setIsCartOpen(false); setIsCheckoutModalOpen(true); }}
+                className="w-full bg-primary-600 text-white font-bold py-4 rounded-full shadow-lg shadow-primary-600/30 active:scale-95 transition-transform text-lg"
               >
                 Proceed to Checkout
               </button>
@@ -362,84 +371,133 @@ export default function StudentMenu() {
         </div>
       )}
 
-      {/* Checkout Modal */}
+      {/* Checkout Bottom Sheet */}
       {isCheckoutModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white w-full max-w-md rounded-3xl p-6 shadow-2xl relative">
-            <button onClick={() => setIsCheckoutModalOpen(false)} className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600"><X className="w-5 h-5"/></button>
-            <h2 className="text-2xl font-bold mb-6">Checkout</h2>
-            
-            <div className="bg-gray-50 rounded-2xl p-4 mb-6">
-              <div className="flex justify-between items-center mb-2">
-                <span className="text-gray-600">Total Items</span>
-                <span className="font-semibold">{cart.reduce((a,c)=>a+c.quantity,0)}</span>
-              </div>
-              <div className="flex justify-between items-center text-lg">
-                <span className="font-bold text-gray-900">Amount to Pay</span>
-                <span className="font-bold text-primary-600">₹{cartTotal}</span>
-              </div>
+        <div className="fixed inset-0 z-[60] flex flex-col justify-end">
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setIsCheckoutModalOpen(false)} />
+          <div className="relative w-full md:max-w-md md:mx-auto bg-white rounded-t-[2.5rem] flex flex-col shadow-2xl animate-in slide-in-from-bottom-[100%] duration-300 h-[90vh]">
+            <div className="flex justify-center pt-3 pb-2">
+              <div className="w-12 h-1.5 bg-slate-200 rounded-full"></div>
             </div>
             
-            <div className="mb-6">
-              <label className="block text-sm font-semibold text-gray-700 mb-2">Order For (Name)</label>
-              <input 
-                type="text" 
-                value={checkoutName}
-                onChange={(e) => setCheckoutName(e.target.value)}
-                placeholder="Enter your name"
-                className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 transition-colors"
-                required
-              />
-            </div>
-
-            <h3 className="font-semibold text-gray-900 mb-3">Select Payment Mode</h3>
-            <div className="grid grid-cols-2 gap-3 mb-6">
-              <button 
-                onClick={() => setPaymentMode('Counter')}
-                className={cn(
-                  "flex flex-col items-center justify-center p-4 rounded-2xl border-2 transition-all",
-                  paymentMode === 'Counter' ? "border-primary-600 bg-primary-50" : "border-gray-100 hover:border-gray-200"
-                )}
-              >
-                <Banknote className={cn("w-8 h-8 mb-2", paymentMode === 'Counter' ? "text-primary-600" : "text-gray-400")} />
-                <span className={cn("font-medium", paymentMode === 'Counter' ? "text-primary-700" : "text-gray-600")}>Pay at Counter</span>
-              </button>
+            <div className="flex-1 overflow-y-auto px-6 pb-8 hide-scrollbar">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-black text-slate-800">Checkout</h2>
+                <button onClick={() => setIsCheckoutModalOpen(false)} className="p-2 bg-slate-100 rounded-full text-slate-400"><X className="w-5 h-5"/></button>
+              </div>
               
-              <button 
-                onClick={() => setPaymentMode('Online')}
-                className={cn(
-                  "flex flex-col items-center justify-center p-4 rounded-2xl border-2 transition-all",
-                  paymentMode === 'Online' ? "border-primary-600 bg-primary-50" : "border-gray-100 hover:border-gray-200"
+              <div className="bg-slate-50 rounded-3xl p-5 mb-6 border border-slate-100">
+                <div className="flex justify-between items-center mb-1 text-sm font-bold text-slate-500 uppercase tracking-wider">
+                  <span>Payable Amount</span>
+                  <span>{cart.reduce((a,c)=>a+c.quantity,0)} Items</span>
+                </div>
+                <div className="text-3xl font-black text-slate-900">₹{cartTotal}</div>
+              </div>
+              
+              <div className="mb-8">
+                <label className="block text-xs font-bold uppercase tracking-widest text-slate-500 mb-3 ml-1">Order For (Name)</label>
+                <input 
+                  type="text" 
+                  value={checkoutName}
+                  onChange={(e) => setCheckoutName(e.target.value)}
+                  placeholder="Enter your name"
+                  className="w-full px-5 py-4 rounded-2xl border-2 border-slate-100 bg-white focus:border-primary-500 focus:outline-none focus:ring-4 focus:ring-primary-500/10 transition-all font-semibold"
+                  required
+                />
+              </div>
+
+              {/* Schedule Options */}
+              <div className="mb-8">
+                <label className="block text-xs font-bold uppercase tracking-widest text-slate-500 mb-3 ml-1">When do you want your order?</label>
+                <div className="grid grid-cols-2 gap-3 bg-slate-50 p-1.5 rounded-[1.5rem] border border-slate-100">
+                  <button 
+                    onClick={() => setOrderType('now')}
+                    className={cn(
+                      "py-3 px-2 rounded-2xl font-bold transition-all text-sm",
+                      orderType === 'now' ? "bg-white shadow-sm text-slate-900" : "text-slate-500 hover:text-slate-700"
+                    )}
+                  >
+                    🕐 Order Now
+                  </button>
+                  <button 
+                    onClick={() => setOrderType('scheduled')}
+                    className={cn(
+                      "py-3 px-2 rounded-2xl font-bold transition-all text-sm",
+                      orderType === 'scheduled' ? "bg-white shadow-sm text-slate-900" : "text-slate-500 hover:text-slate-700"
+                    )}
+                  >
+                    📅 For Later
+                  </button>
+                </div>
+                
+                {orderType === 'scheduled' && (
+                  <div className="mt-4 bg-purple-50 rounded-3xl p-5 border border-purple-100 animate-in fade-in slide-in-from-top-2">
+                    <label className="block text-xs font-bold text-purple-900 uppercase tracking-widest mb-4 ml-1">Select Pickup Time</label>
+                    
+                    <AnalogClockPicker 
+                      value={scheduledTimeStr} 
+                      onChange={setScheduledTimeStr} 
+                    />
+
+                    <p className="text-xs font-bold text-purple-600 mt-5 flex items-start gap-2 bg-purple-100/50 p-3 rounded-2xl">
+                      <span className="bg-purple-200 text-purple-800 px-1.5 py-0.5 rounded uppercase tracking-wider text-[9px] mt-0.5 shrink-0">Info</span>
+                      Your order activates and gets sent to the kitchen 10 mins before this selected time.
+                    </p>
+                  </div>
                 )}
+              </div>
+
+              <div className="mb-8">
+                <label className="block text-xs font-bold uppercase tracking-widest text-slate-500 mb-3 ml-1">Payment Mode</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button 
+                    onClick={() => setPaymentMode('Counter')}
+                    className={cn(
+                      "flex flex-col items-center justify-center p-5 rounded-3xl border-2 transition-all duration-200",
+                      paymentMode === 'Counter' ? "border-primary-600 bg-primary-50" : "border-slate-100 hover:border-slate-200 bg-white"
+                    )}
+                  >
+                    <Banknote className={cn("w-8 h-8 mb-3 transition-colors", paymentMode === 'Counter' ? "text-primary-600" : "text-slate-300")} />
+                    <span className={cn("font-bold text-sm", paymentMode === 'Counter' ? "text-primary-800" : "text-slate-600")}>At Counter</span>
+                  </button>
+                  
+                  <button 
+                    onClick={() => setPaymentMode('Online')}
+                    className={cn(
+                      "flex flex-col items-center justify-center p-5 rounded-3xl border-2 transition-all duration-200",
+                      paymentMode === 'Online' ? "border-primary-600 bg-primary-50" : "border-slate-100 hover:border-slate-200 bg-white"
+                    )}
+                  >
+                    <CreditCard className={cn("w-8 h-8 mb-3 transition-colors", paymentMode === 'Online' ? "text-primary-600" : "text-slate-300")} />
+                    <span className={cn("font-bold text-sm", paymentMode === 'Online' ? "text-primary-800" : "text-slate-600")}>Pay Online</span>
+                  </button>
+                </div>
+              </div>
+
+              {paymentMode === 'Online' && !isSimulatedPaymentPaid && (
+                <div className="mb-6 animate-in fade-in">
+                  <button 
+                    onClick={() => setIsSimulatedPaymentPaid(true)}
+                    className="w-full bg-blue-100 text-blue-700 py-4 rounded-2xl font-bold tracking-wide active:scale-95 transition-transform"
+                  >
+                    Test Online Payment
+                  </button>
+                </div>
+              )}
+              {paymentMode === 'Online' && isSimulatedPaymentPaid && (
+                <div className="mb-6 bg-emerald-50 text-emerald-700 py-4 px-4 rounded-2xl flex items-center justify-center font-bold border border-emerald-100 animate-in zoom-in-95">
+                  Payment Successful! ✅
+                </div>
+              )}
+
+              <button 
+                disabled={!paymentMode || (paymentMode === 'Online' && !isSimulatedPaymentPaid) || isPlacingOrder}
+                onClick={placeOrder}
+                className="w-full bg-slate-900 disabled:opacity-50 disabled:active:scale-100 hover:bg-black text-white font-bold text-xl py-5 rounded-full shadow-2xl active:scale-95 transition-all"
               >
-                <CreditCard className={cn("w-8 h-8 mb-2", paymentMode === 'Online' ? "text-primary-600" : "text-gray-400")} />
-                <span className={cn("font-medium", paymentMode === 'Online' ? "text-primary-700" : "text-gray-600")}>Pay Online</span>
+                {isPlacingOrder ? 'Processing...' : 'Confirm Order'}
               </button>
             </div>
-
-            {paymentMode === 'Online' && !isSimulatedPaymentPaid && (
-              <div className="mb-6">
-                <button 
-                  onClick={() => setIsSimulatedPaymentPaid(true)}
-                  className="w-full bg-blue-100 text-blue-700 border border-blue-200 py-3 rounded-xl font-medium"
-                >
-                  Simulate Online Payment (Click to Pay)
-                </button>
-              </div>
-            )}
-            {paymentMode === 'Online' && isSimulatedPaymentPaid && (
-              <div className="mb-6 bg-green-50 text-green-700 border border-green-200 py-3 px-4 rounded-xl flex items-center justify-center font-medium">
-                Payment Successful! ✅
-              </div>
-            )}
-
-            <button 
-              disabled={!paymentMode || (paymentMode === 'Online' && !isSimulatedPaymentPaid) || isPlacingOrder}
-              onClick={placeOrder}
-              className="w-full bg-gray-900 disabled:opacity-50 hover:bg-black text-white font-bold text-lg py-4 rounded-xl shadow-xl transition-all"
-            >
-              {isPlacingOrder ? 'Processing...' : 'Confirm Order'}
-            </button>
           </div>
         </div>
       )}

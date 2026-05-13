@@ -37,7 +37,7 @@ export interface Banner {
   createdAt: number;
 }
 
-export type OrderStatus = 'Placed' | 'Preparing' | 'Ready' | 'Completed';
+export type OrderStatus = 'Scheduled' | 'Placed' | 'Preparing' | 'Ready' | 'Completed' | 'Cancelled';
 export type PaymentMode = 'Counter' | 'Online';
 export type PaymentStatus = 'Pending' | 'Paid';
 
@@ -60,4 +60,6 @@ export interface Order {
   paymentStatus: PaymentStatus;
   status: OrderStatus;
   timePlaced: number;
+  orderType?: 'now' | 'scheduled';
+  scheduledTime?: number;
 }

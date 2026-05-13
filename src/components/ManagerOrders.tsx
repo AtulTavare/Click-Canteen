@@ -60,7 +60,12 @@ export default function ManagerOrders() {
               {filteredOrders.map(o => (
                 <tr key={o.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-6 py-4 font-mono font-bold text-gray-900">{o.orderNumber}</td>
-                  <td className="px-6 py-4 text-gray-500">{format(o.timePlaced, 'MMM d, h:mm a')}</td>
+                  <td className="px-6 py-4 text-gray-500">
+                    <div>{format(o.timePlaced, 'MMM d, h:mm a')}</div>
+                    {o.scheduledTime && o.status === 'Scheduled' && (
+                      <div className="text-purple-600 font-bold text-xs mt-1 bg-purple-50 inline-block px-1 rounded">For: {format(o.scheduledTime, 'h:mm a')}</div>
+                    )}
+                  </td>
                   <td className="px-6 py-4">{o.table}</td>
                   <td className="px-6 py-4 font-semibold text-gray-900">₹{o.totalAmount}</td>
                   <td className="px-6 py-4">
@@ -74,6 +79,7 @@ export default function ManagerOrders() {
                   <td className="px-6 py-4">
                      <span className={cn(
                       "px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider inline-block border",
+                      o.status === 'Scheduled' ? "border-purple-200 text-purple-700 bg-purple-50" :
                       o.status === 'Placed' ? "border-blue-200 text-blue-700 bg-blue-50" :
                       o.status === 'Preparing' ? "border-amber-200 text-amber-700 bg-amber-50" :
                       o.status === 'Ready' ? "border-green-200 text-green-700 bg-green-50" :

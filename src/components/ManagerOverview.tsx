@@ -50,18 +50,13 @@ export default function ManagerOverview() {
       snap.forEach(d => {
         const o = { id: d.id, ...d.data() } as Order;
         liveOrders.push(o);
-        if (o.status !== 'Completed') {
+        if (o.status === 'Placed' || o.status === 'Preparing') {
           activeOrderCount++;
         }
         if (o.paymentStatus === 'Paid') {
           todayRev += o.totalAmount;
         }
       });
-      
-      // Need items array fetched for Live Orders!
-      // In firestore rules, we have orderItems in a subcollection. This is tricky to get synchronously with onSnapshot.
-      // Better to fetch them asynchronously when needed, or store a denormalized summary of items in `Order` document directly for the dashboard.
-      // I'll update the placeOrder logic to also attach an `itemsSummary` array to the Order document for quick rendering, skipping subcollection joins on list, to save reads.
       
       liveOrders.sort((a,b) => b.timePlaced - a.timePlaced);
       setOrders(liveOrders);
@@ -93,6 +88,7 @@ export default function ManagerOverview() {
   };
 
   const liveOrders = orders.filter(o => o.status === 'Placed' || o.status === 'Preparing');
+  const scheduledOrders = orders.filter(o => o.status === 'Scheduled');
   const pendingBills = orders.filter(o => o.paymentMode === 'Counter' && o.paymentStatus === 'Pending');
   const recentlyCompleted = orders.filter(o => o.status === 'Ready' || o.status === 'Completed').slice(0, 5);
   
@@ -128,20 +124,21 @@ export default function ManagerOverview() {
             <h3 className="text-2xl font-bold text-slate-900">₹{revenue}</h3>
           </div>
         </div>
-        <div className="col-span-1 border-slate-100 bg-white sm:col-span-3 sm:row-span-1 p-5 rounded-2xl border shadow-sm flex flex-col justify-between">
-          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Total Orders</p>
-          <div className="flex items-end justify-between">
-            <h3 className="text-2xl font-bold text-slate-900">{orders.length}</h3>
-          </div>
-        </div>
-        <div className="col-span-1 border-slate-100 bg-white sm:col-span-3 sm:row-span-1 p-5 rounded-2xl border shadow-sm flex flex-col justify-between">
-          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Avg Order Value</p>
-          <div className="flex items-end justify-between">
-            <h3 className="text-2xl font-bold text-slate-900">₹{aov}</h3>
-          </div>
-        </div>
         <div className="col-span-1 border-slate-100 bg-white sm:col-span-3 sm:row-span-1 p-5 rounded-2xl border shadow-sm flex flex-col justify-between relative overflow-hidden">
-          <p className="text-xs font-semibold text-primary-400 uppercase tracking-wider mb-2 z-10 relative">Pending Orders</p>
+          <p className="text-xs font-semibold text-purple-400 uppercase tracking-wider mb-2">Scheduled Orders</p>
+          <div className="flex items-end justify-between">
+            <h3 className="text-2xl font-bold text-purple-600">{scheduledOrders.length}</h3>
+          </div>
+          <div className="absolute top-0 right-0 w-32 h-32 bg-purple-50 rounded-full blur-3xl opacity-50 -mr-10 -mt-10 pointer-events-none"></div>
+        </div>
+        <div className="col-span-1 border-slate-100 bg-white sm:col-span-3 sm:row-span-1 p-5 rounded-2xl border shadow-sm flex flex-col justify-between">
+           <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Total Orders</p>
+           <div className="flex items-end justify-between">
+             <h3 className="text-2xl font-bold text-slate-900">{orders.length}</h3>
+           </div>
+         </div>
+        <div className="col-span-1 border-slate-100 bg-white sm:col-span-3 sm:row-span-1 p-5 rounded-2xl border shadow-sm flex flex-col justify-between relative overflow-hidden">
+          <p className="text-xs font-semibold text-primary-400 uppercase tracking-wider mb-2 z-10 relative">Pending Kitchen</p>
           <div className="flex items-end justify-between z-10 relative">
             <h3 className="text-2xl font-bold text-primary-600">{liveOrders.length}</h3>
             {liveOrders.length > 0 && <span className="flex h-2 w-2 rounded-full bg-primary-500 animate-pulse mb-2"></span>}

@@ -58,7 +58,7 @@ service cloud.firestore {
       allow create: if isSignedIn() && request.resource.data.customerId == request.auth.uid;
       allow update: if isAdmin() || (
         isSignedIn() && resource.data.customerId == request.auth.uid 
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['paymentStatus'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasAny(['paymentStatus', 'status'])
       );
       allow delete: if isAdmin();
 
