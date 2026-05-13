@@ -1,0 +1,89 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() { return request.auth != null; }
+    function isAdmin() { 
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) 
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'manager';
+    }
+    function isStudent() {
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) 
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'student';
+    }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isValidId(id) { 
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); 
+    }
+
+    // --- Users ---
+    match /users/{userId} {
+      allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isSignedIn() && request.auth.uid == userId 
+        && incoming().keys().hasAll(['email', 'role'])
+        && incoming().email is string
+        && incoming().role == 'student'; // Prevent self-assigning manager
+      allow update: if isAdmin();
+    }
+
+    // --- Items ---
+    match /items/{itemId} {
+      allow read: if isSignedIn(); // Both students and managers can read
+      allow write: if isAdmin();
+    }
+
+    // --- Tables ---
+    match /tables/{tableId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // --- Banners ---
+    match /banners/{bannerId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // --- Counters ---
+    match /counters/{counterId} {
+      // Allow read so students can know the next order number?
+      // Actually, students need to update the counter to increment it when placing an order.
+      allow read: if isSignedIn();
+      allow write: if isSignedIn(); // We will trust authenticated users to increment counters for now, though Cloud Functions is safer. 
+      // Minimal security for counters here because Cloud Functions is not available in AI Studio natively.
+    }
+
+    // --- Orders ---
+    match /orders/{orderId} {
+      allow get: if isSignedIn() && (existing().customerId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (existing().customerId == request.auth.uid || isAdmin());
+      
+      allow create: if isSignedIn()
+        && incoming().keys().hasAll(['orderNumber', 'table', 'customerId', 'totalAmount', 'paymentMode', 'paymentStatus', 'status', 'timePlaced'])
+        && incoming().customerId == request.auth.uid;
+
+      allow update: if isAdmin() || (
+        // Students can only pay online (update paymentStatus)
+        isSignedIn() && existing().customerId == request.auth.uid 
+        && incoming().diff(existing()).affectedKeys().hasOnly(['paymentStatus'])
+        && incoming().paymentStatus == 'Paid'
+        && existing().paymentStatus == 'Pending'
+        && existing().paymentMode == 'Online'
+      );
+      allow delete: if false;
+
+      match /orderItems/{itemId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn() && get(/databases/$(database)/documents/orders/$(orderId)).data.customerId == request.auth.uid;
+        allow update, delete: if isAdmin();
+      }
+    }
+  }
+}

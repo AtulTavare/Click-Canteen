@@ -1,0 +1,113 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile containing role information.",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string", "enum": ["student", "manager"] },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["email", "role"]
+    },
+    "Item": {
+      "title": "Menu Item",
+      "description": "A food or beverage item on the menu.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "description": { "type": "string" },
+        "price": { "type": "number" },
+        "imageUrl": { "type": "string" },
+        "available": { "type": "boolean" },
+        "orderCount": { "type": "number" }
+      },
+      "required": ["name", "category", "price", "available", "orderCount"]
+    },
+    "Table": {
+      "title": "Table",
+      "description": "QR code table configuration.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "active": { "type": "boolean" },
+        "lastScannedAt": { "type": "number" }
+      },
+      "required": ["name", "active"]
+    },
+    "Banner": {
+      "title": "Promotional Banner",
+      "description": "A promotional banner shown on the home and menu pages.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "validTill": { "type": "number" },
+        "active": { "type": "boolean" },
+        "clickCount": { "type": "number" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["title", "active", "clickCount", "createdAt"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "A food order placed by a student.",
+      "type": "object",
+      "properties": {
+        "orderNumber": { "type": "string" },
+        "table": { "type": "string" },
+        "customerId": { "type": "string" },
+        "totalAmount": { "type": "number" },
+        "paymentMode": { "type": "string", "enum": ["Counter", "Online"] },
+        "paymentStatus": { "type": "string", "enum": ["Pending", "Paid"] },
+        "status": { "type": "string", "enum": ["Placed", "Preparing", "Ready", "Completed"] },
+        "timePlaced": { "type": "number" }
+      },
+      "required": ["orderNumber", "table", "totalAmount", "paymentMode", "paymentStatus", "status", "timePlaced"]
+    },
+    "AppCounter": {
+      "title": "App Counter",
+      "description": "Singleton to keep track of daily order counts.",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string" },
+        "count": { "type": "number" }
+      },
+      "required": ["date", "count"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Stores user profiles and roles."
+    },
+    "items/{itemId}": {
+      "schema": { "$ref": "#/entities/Item" },
+      "description": "Stores all menu items."
+    },
+    "tables/{tableId}": {
+      "schema": { "$ref": "#/entities/Table" },
+      "description": "Stores all tables."
+    },
+    "banners/{bannerId}": {
+      "schema": { "$ref": "#/entities/Banner" },
+      "description": "Stores promotional banners."
+    },
+    "orders/{orderId}": {
+      "schema": { "$ref": "#/entities/Order" },
+      "description": "Stores all customer orders."
+    },
+    "orders/{orderId}/orderItems/{itemId}": {
+      "schema": { "type": "object" },
+      "description": "The items inside an order to prevent unbounded arrays."
+    },
+    "counters/{counterId}": {
+      "schema": { "$ref": "#/entities/AppCounter" },
+      "description": "Stores counters like daily sequence numbers."
+    }
+  }
+}
