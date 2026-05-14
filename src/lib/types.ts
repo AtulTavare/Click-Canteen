@@ -37,9 +37,33 @@ export interface Banner {
   createdAt: number;
 }
 
-export type OrderStatus = 'Scheduled' | 'Placed' | 'Preparing' | 'Ready' | 'Completed' | 'Cancelled';
+export type OrderStatus = 'Scheduled' | 'Placed' | 'Preparing' | 'Ready' | 'Completed' | 'Cancelled' | 'Expired';
 export type PaymentMode = 'Counter' | 'Online';
 export type PaymentStatus = 'Pending' | 'Paid';
+
+export interface CanteenSettings {
+  id?: string;
+  openTime: string; // HH:mm
+  closeTime: string; // HH:mm
+  activeDays: {
+    mon: boolean;
+    tue: boolean;
+    wed: boolean;
+    thu: boolean;
+    fri: boolean;
+    sat: boolean;
+    sun: boolean;
+  };
+}
+
+export interface Category {
+  id: string;
+  name: string;
+  description: string;
+  imageUrl: string;
+  displayOrder: number;
+  active: boolean;
+}
 
 export interface OrderItem {
   id: string;

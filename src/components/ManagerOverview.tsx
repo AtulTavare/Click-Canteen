@@ -3,14 +3,32 @@ import { collection, query, where, onSnapshot, doc, updateDoc, Timestamp, orderB
 import { db } from '../lib/firebase';
 import { Order } from '../lib/types';
 import { cn } from '../lib/utils';
-import { Check, CheckCircle2, ChevronRight, Loader2, Play } from 'lucide-react';
+import { Check, CheckCircle2, ChevronRight, Loader2, Play, TrendingUp, CalendarClock, ShoppingBag, ChefHat, Banknote, Package, Clock, ArrowRight, Activity, Bell } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import CanteenTimingCard from './CanteenTimingCard';
 
 export default function ManagerOverview() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [revenue, setRevenue] = useState(0);
+  const [currentTime, setCurrentTime] = useState(Date.now());
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const prevOrderCountRef = useRef(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => setCurrentTime(Date.now()), 30000); // 30s
+    return () => clearInterval(interval);
+  }, []);
+
+  const getElapsedTime = (ms: number) => {
+    const diff = Math.floor((currentTime - ms) / 60000); // mins
+    if (diff < 1) return 'Just now';
+    if (diff > 60) {
+      const h = Math.floor(diff / 60);
+      const m = diff % 60;
+      return `${h}h ${m}m ago`;
+    }
+    return `${diff}m ago`;
+  };
 
   useEffect(() => {
     // We can pre-load a simple ping sound using a data URI to avoid assets
@@ -71,6 +89,41 @@ export default function ManagerOverview() {
     return () => { unsub(); ctx.close(); };
   }, []);
 
+  useEffect(() => {
+    const expireOrders = async () => {
+      const now = Date.now();
+      const todayStart = new Date();
+      todayStart.setHours(0,0,0,0);
+      const todayMs = todayStart.getTime();
+
+      for (const o of orders) {
+        if (o.status === 'Completed' || o.status === 'Cancelled' || o.status === 'Expired') continue;
+        
+        let shouldExpire = false;
+
+        if (o.scheduledTime) {
+           if (now - o.scheduledTime > 30 * 60000) shouldExpire = true;
+        } else {
+           if (now - o.timePlaced > 30 * 60000) shouldExpire = true;
+        }
+
+        if (o.timePlaced < todayMs) {
+           shouldExpire = true;
+        }
+
+        if (shouldExpire) {
+           try {
+             await updateDoc(doc(db, 'orders', o.id), { status: 'Expired' });
+           } catch(e) { }
+        }
+      }
+    };
+    
+    const to = setTimeout(expireOrders, 1000);
+    const interval = setInterval(expireOrders, 60000);
+    return () => { clearTimeout(to); clearInterval(interval); };
+  }, [orders]);
+
   const changeStatus = async (orderId: string, status: string) => {
     try {
       await updateDoc(doc(db, 'orders', orderId), { status });
@@ -95,226 +148,256 @@ export default function ManagerOverview() {
   const aov = orders.length > 0 ? Math.round((revenue / orders.length) || 0) : 0;
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-8 pb-24">
       {/* Top Header */}
-      <header className="h-20 bg-white border-b border-slate-200 flex items-center justify-between px-8 shrink-0">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-2">
         <div>
-          <h2 className="text-2xl font-bold text-slate-800 tracking-tight">Overview</h2>
-          <p className="text-sm text-slate-400">
-            {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' })}
+          <h2 className="text-3xl font-black text-slate-900 tracking-tight">Overview Dashboard</h2>
+          <p className="text-sm font-medium text-slate-500 mt-1 flex items-center gap-2">
+            <CalendarClock className="w-4 h-4" />
+            {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
           </p>
         </div>
-        <div className="flex space-x-4">
-          <Link to="/manager/orders" className="hidden sm:inline-flex px-4 py-2 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-lg text-sm font-medium transition-colors">
-            View All Orders
+        <div className="flex space-x-3">
+          <Link to="/manager/orders" className="px-5 py-2.5 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 hover:text-slate-900 rounded-xl text-sm font-bold transition-all shadow-sm flex items-center gap-2">
+            <ShoppingBag className="w-4 h-4" /> All Orders
           </Link>
-          <Link to="/manager/analytics" className="px-4 py-2 bg-primary-600 text-white hover:bg-primary-700 rounded-lg text-sm font-medium shadow-lg shadow-primary-600/20 transition-all active:scale-95">
-            Full Analytics
+          <Link to="/manager/analytics" className="px-5 py-2.5 bg-slate-900 text-white hover:bg-slate-800 rounded-xl text-sm font-bold shadow-lg shadow-slate-900/20 transition-all active:scale-95 flex items-center gap-2">
+            <TrendingUp className="w-4 h-4" /> Analytics
           </Link>
         </div>
-      </header>
+      </div>
 
-      {/* Scroll-less Bento Dashboard */}
-      <div className="flex-1 p-8 grid grid-cols-1 sm:grid-cols-12 grid-rows-1 sm:grid-rows-6 gap-6 overflow-y-auto sm:overflow-hidden min-h-[700px]">
-        
-        {/* Top Stats Row */}
-        <div className="col-span-1 border-slate-100 bg-white sm:col-span-3 sm:row-span-1 p-5 rounded-2xl border shadow-sm flex flex-col justify-between">
-          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Today's Revenue</p>
-          <div className="flex items-end justify-between">
-            <h3 className="text-2xl font-bold text-slate-900">₹{revenue}</h3>
+      <div className="grid grid-cols-12 gap-6">
+        {/* Full width Timing Card wrapper */}
+        <div className="col-span-12">
+          <CanteenTimingCard />
+        </div>
+
+        {/* --- Top Stats Row --- */}
+        <div className="col-span-12 sm:col-span-6 lg:col-span-3 bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex flex-col justify-between relative overflow-hidden group">
+          <div className="absolute top-0 right-0 p-6 opacity-20 group-hover:opacity-10 transition-opacity">
+            <Banknote className="w-16 h-16 text-emerald-500 -mr-4 -mt-4" />
+          </div>
+          <div>
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Today's Revenue</p>
+            <h3 className="text-4xl font-black text-slate-900 tracking-tight">₹{revenue}</h3>
+          </div>
+          <div className="mt-4 flex items-center text-xs font-bold text-emerald-600 bg-emerald-50 w-fit px-2.5 py-1 rounded-lg">
+            <TrendingUp className="w-3 h-3 mr-1" /> Live Sync
           </div>
         </div>
-        <div className="col-span-1 border-slate-100 bg-white sm:col-span-3 sm:row-span-1 p-5 rounded-2xl border shadow-sm flex flex-col justify-between relative overflow-hidden">
-          <p className="text-xs font-semibold text-purple-400 uppercase tracking-wider mb-2">Scheduled Orders</p>
-          <div className="flex items-end justify-between">
-            <h3 className="text-2xl font-bold text-purple-600">{scheduledOrders.length}</h3>
+
+        <div className="col-span-12 sm:col-span-6 lg:col-span-3 bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex flex-col justify-between relative overflow-hidden group">
+          <div className="absolute top-0 right-0 p-6 opacity-20 group-hover:opacity-10 transition-opacity">
+            <Clock className="w-16 h-16 text-purple-500 -mr-4 -mt-4" />
           </div>
-          <div className="absolute top-0 right-0 w-32 h-32 bg-purple-50 rounded-full blur-3xl opacity-50 -mr-10 -mt-10 pointer-events-none"></div>
-        </div>
-        <div className="col-span-1 border-slate-100 bg-white sm:col-span-3 sm:row-span-1 p-5 rounded-2xl border shadow-sm flex flex-col justify-between">
-           <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Total Orders</p>
-           <div className="flex items-end justify-between">
-             <h3 className="text-2xl font-bold text-slate-900">{orders.length}</h3>
-           </div>
-         </div>
-        <div className="col-span-1 border-slate-100 bg-white sm:col-span-3 sm:row-span-1 p-5 rounded-2xl border shadow-sm flex flex-col justify-between relative overflow-hidden">
-          <p className="text-xs font-semibold text-primary-400 uppercase tracking-wider mb-2 z-10 relative">Pending Kitchen</p>
-          <div className="flex items-end justify-between z-10 relative">
-            <h3 className="text-2xl font-bold text-primary-600">{liveOrders.length}</h3>
-            {liveOrders.length > 0 && <span className="flex h-2 w-2 rounded-full bg-primary-500 animate-pulse mb-2"></span>}
+          <div>
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Scheduled</p>
+            <h3 className="text-4xl font-black text-purple-600 tracking-tight">{scheduledOrders.length}</h3>
           </div>
-          <div className="absolute top-0 right-0 w-32 h-32 bg-primary-50 rounded-full blur-3xl opacity-50 -mr-10 -mt-10 pointer-events-none"></div>
+          <div className="mt-4 text-xs font-bold text-slate-500 bg-slate-50 w-fit px-2.5 py-1 rounded-lg">
+            Upcoming later
+          </div>
         </div>
+
+        <div className="col-span-12 sm:col-span-6 lg:col-span-3 bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex flex-col justify-between relative overflow-hidden group">
+          <div className="absolute top-0 right-0 p-6 opacity-10 group-hover:opacity-5 transition-opacity">
+            <ShoppingBag className="w-16 h-16 text-slate-900 -mr-4 -mt-4" />
+          </div>
+          <div>
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Total Orders</p>
+            <h3 className="text-4xl font-black text-slate-900 tracking-tight">{orders.length}</h3>
+          </div>
+          <div className="mt-4 text-xs font-bold text-slate-500 bg-slate-50 w-fit px-2.5 py-1 rounded-lg">
+            Today
+          </div>
+        </div>
+
+        <div className="col-span-12 sm:col-span-6 lg:col-span-3 bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex flex-col justify-between relative overflow-hidden group">
+          <div className="absolute top-0 right-0 p-6 opacity-20 group-hover:opacity-10 transition-opacity">
+            <ChefHat className="w-16 h-16 text-blue-500 -mr-4 -mt-4" />
+          </div>
+          <div className="relative z-10">
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Live Kitchen</p>
+            <div className="flex items-center gap-3">
+              <h3 className="text-4xl font-black text-blue-600 tracking-tight">{liveOrders.length}</h3>
+              {liveOrders.length > 0 && <span className="flex h-3 w-3 rounded-full bg-blue-500 animate-pulse shadow-[0_0_10px_rgba(59,130,246,0.6)]"></span>}
+            </div>
+          </div>
+          <div className="mt-4 text-xs font-bold text-blue-600 bg-blue-50 w-fit px-2.5 py-1 rounded-lg relative z-10">
+            Pending Action
+          </div>
+        </div>
+
+        {/* --- Central Dashboard Panels --- */}
 
         {/* Main Live Kitchen Panel (Left Column) */}
-        <div className="col-span-1 sm:col-span-8 sm:row-span-5 bg-white rounded-3xl border border-slate-100 shadow-sm p-6 flex flex-col min-h-[400px]">
-          <div className="flex items-center justify-between mb-6 shrink-0">
-            <h4 className="text-lg font-bold flex items-center text-slate-800">
-              Live Kitchen Orders
-              <span className="ml-3 px-2 py-0.5 bg-slate-100 text-slate-500 text-xs rounded uppercase tracking-wider font-semibold">Real-time</span>
-            </h4>
-            <div className="flex space-x-2">
-              <div className="w-3 h-3 bg-blue-400 rounded-full animate-pulse"></div>
-              <div className="w-3 h-3 bg-amber-400 rounded-full animate-pulse delay-75"></div>
-              <div className="w-3 h-3 bg-emerald-400 rounded-full animate-pulse delay-150"></div>
+        <div className="col-span-12 lg:col-span-8 bg-white rounded-3xl border border-slate-100 shadow-sm p-6 lg:p-8 flex flex-col">
+          <div className="flex items-center justify-between mb-8 pb-4 border-b border-slate-50">
+            <div>
+              <h4 className="text-2xl font-black flex items-center gap-3 text-slate-900 tracking-tight">
+                <Activity className="w-6 h-6 text-red-500" />
+                Kitchen Display System
+              </h4>
+              <p className="text-sm font-medium text-slate-500 mt-1">Orders currently preparing or placed</p>
+            </div>
+            <div className="hidden sm:flex space-x-2 px-4 py-2 bg-slate-50 rounded-full border border-slate-100">
+              <div className="w-2.5 h-2.5 bg-blue-500 rounded-full animate-pulse shadow-sm shadow-blue-500/50"></div>
+              <div className="w-2.5 h-2.5 bg-amber-500 rounded-full animate-pulse delay-75 shadow-sm shadow-amber-500/50"></div>
+              <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-pulse delay-150 shadow-sm shadow-emerald-500/50"></div>
             </div>
           </div>
           
-          <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4 overflow-y-auto pr-2 hide-scrollbar content-start">
+          <div className="flex-1">
             {liveOrders.length === 0 ? (
-               <div className="col-span-full h-full flex flex-col items-center justify-center text-slate-400 font-medium opacity-60">
-                 <div className="text-4xl mb-3">🎉</div>
-                 <p>All clear — no active orders</p>
+               <div className="h-64 flex flex-col items-center justify-center text-slate-400 font-medium bg-slate-50/50 rounded-3xl border border-dashed border-slate-200">
+                 <div className="text-4xl mb-4">🎉</div>
+                 <p className="text-lg text-slate-500 font-bold">Kitchen is clear!</p>
+                 <p className="text-sm mt-1">Waiting for new orders...</p>
                </div>
             ) : (
-              liveOrders.map(o => (
-                <div key={o.id} className={cn(
-                  "rounded-2xl p-4 flex flex-col h-fit transition-all duration-300",
-                  o.status === 'Placed' ? "border border-blue-100 bg-blue-50/50" : "border border-amber-200 bg-amber-50/50"
-                )}>
-                  <div className="flex justify-between items-start mb-3">
-                    <div>
-                      <span className={cn(
-                        "text-xs font-bold px-2 py-0.5 rounded uppercase tracking-wider",
-                        o.status === 'Placed' ? "text-blue-600 bg-blue-100" : "text-amber-700 bg-amber-200"
-                      )}>
-                        {o.status.toUpperCase()}
-                      </span>
-                      <h5 className="text-lg font-bold mt-1 text-slate-900 font-mono tracking-tight">{o.orderNumber}</h5>
-                      <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">{o.table} • {Math.round((Date.now() - o.timePlaced) / 60000)}m ago</p>
-                    </div>
-                    <span className={cn(
-                      "text-[10px] font-bold px-2 py-1 rounded tracking-tight",
-                      o.paymentMode === 'Counter' ? "bg-slate-200 text-slate-700" : "bg-emerald-100 text-emerald-700"
-                    )}>
-                      {o.paymentMode === 'Counter' ? 'COUNTER' : 'ONLINE'}
-                    </span>
-                  </div>
-                  <ul className="space-y-1 mb-4 flex-1 text-slate-700">
-                    {/* Assuming items is populated, if not fall back to items metadata if available */}
-                    {o.items && o.items.length > 0 ? o.items.map((i, idx) => (
-                      <li key={idx} className="text-sm flex justify-between">
-                        <span className="font-medium">{i.quantity}x {i.name}</span>
-                      </li>
-                    )) : (
-                      <li className="text-sm italic opacity-50">Items loading...</li>
-                    )}
-                  </ul>
-                  
-                  <div className="mt-auto pt-2">
-                    {o.status === 'Placed' && (
-                      <button onClick={() => changeStatus(o.id, 'Preparing')} className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold shadow-md shadow-blue-600/20 active:scale-95 transition-all">
-                        Start Preparing
-                      </button>
-                    )}
-                    {o.status === 'Preparing' && (
-                      <button onClick={() => changeStatus(o.id, 'Ready')} className="w-full py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-sm font-bold shadow-md shadow-amber-600/20 active:scale-95 transition-all">
-                        Mark Ready
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))
+               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                 {liveOrders.map(o => (
+                   <div key={o.id} className={cn(
+                     "rounded-3xl p-5 flex flex-col transition-all duration-300 relative overflow-hidden",
+                     o.status === 'Placed' 
+                        ? "border-2 border-blue-100 bg-gradient-to-b from-blue-50/80 to-white shadow-sm hover:shadow-blue-100/50" 
+                        : "border-2 border-amber-200 bg-gradient-to-b from-amber-50/80 to-white shadow-md hover:shadow-amber-200/50"
+                   )}>
+                     
+                     <div className="flex justify-between items-start mb-5">
+                       <div>
+                         <div className="flex items-center gap-2 mb-1">
+                            <span className={cn(
+                              "text-[10px] font-black px-2 py-1 rounded-md uppercase tracking-widest",
+                              o.status === 'Placed' ? "text-blue-700 bg-blue-100" : "text-amber-800 bg-amber-200"
+                            )}>
+                              {o.status}
+                            </span>
+                            <span className={cn(
+                              "text-[10px] font-black px-2 py-1 rounded-md tracking-widest flex items-center gap-1",
+                              o.paymentMode === 'Counter' ? "bg-slate-200 text-slate-700" : "bg-emerald-100 text-emerald-700"
+                            )}>
+                              {o.paymentMode === 'Counter' ? <Banknote className="w-3 h-3"/> : <CheckCircle2 className="w-3 h-3"/>}
+                              {o.paymentMode === 'Counter' ? 'CASH' : 'PAID'}
+                            </span>
+                         </div>
+                         <h5 className="text-2xl font-black mt-2 text-slate-900 font-mono tracking-tighter">#{o.orderNumber}</h5>
+                         <p className="text-xs text-slate-500 font-bold tracking-wide mt-1 flex items-center gap-1.5 border border-slate-200 bg-white w-fit px-2 py-0.5 rounded-md shadow-sm">
+                            {o.table} 
+                            <span className="text-slate-300">•</span> 
+                            <span className="text-slate-600">{getElapsedTime(o.timePlaced)}</span>
+                         </p>
+                       </div>
+                     </div>
+
+                     <div className="bg-white rounded-2xl p-4 mb-6 flex-1 shadow-sm border border-slate-100">
+                        <ul className="space-y-3">
+                          {o.items && o.items.length > 0 ? o.items.map((i, idx) => (
+                            <li key={idx} className="text-sm flex items-start gap-3 text-slate-700">
+                              <span className="font-black bg-slate-100 text-slate-700 px-2 py-0.5 rounded text-xs">{i.quantity}x</span>
+                              <span className="font-bold leading-tight pt-0.5">{i.name}</span>
+                            </li>
+                          )) : (
+                            <li className="text-sm italic text-slate-400">Items loading...</li>
+                          )}
+                        </ul>
+                     </div>
+                     
+                     <div className="mt-auto">
+                       {o.status === 'Placed' && (
+                         <button onClick={() => changeStatus(o.id, 'Preparing')} className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-black shadow-lg shadow-blue-600/30 active:scale-[0.98] transition-all flex items-center justify-center gap-2">
+                           <ChefHat className="w-4 h-4"/> Start Preparing
+                         </button>
+                       )}
+                       {o.status === 'Preparing' && (
+                         <button onClick={() => changeStatus(o.id, 'Ready')} className="w-full py-3.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-sm font-black shadow-lg shadow-emerald-500/30 active:scale-[0.98] transition-all flex items-center justify-center gap-2">
+                           <CheckCircle2 className="w-4 h-4"/> Mark Ready
+                         </button>
+                       )}
+                     </div>
+                   </div>
+                 ))}
+               </div>
             )}
-            
-            {/* Show recently completed orders in a muted state if Live Orders are sparse, else let them be hidden by overflow or just excluded. 
-                Actually, let's include the recent 2 completed ones as "Ready/Completed" to match the visual if liveOrders < 4 */}
-            {liveOrders.length < 4 && recentlyCompleted.slice(0, 4 - liveOrders.length).map((o) => (
-              <div key={o.id} className="border border-slate-100 bg-slate-50/50 rounded-2xl p-4 flex flex-col h-fit opacity-60 grayscale-[0.5]">
-                <div className="flex justify-between items-start mb-3">
-                  <div>
-                    <span className="text-[10px] font-bold text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded uppercase tracking-wider">
-                      {o.status.toUpperCase()}
-                    </span>
-                    <h5 className="text-lg font-bold mt-1 text-slate-800 font-mono tracking-tight">{o.orderNumber}</h5>
-                    <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">{o.table} • {Math.round((Date.now() - o.timePlaced) / 60000)}m ago</p>
-                  </div>
-                  <span className={cn(
-                      "text-[10px] font-bold px-2 py-1 rounded tracking-tight",
-                      o.paymentMode === 'Counter' ? "bg-slate-200 text-slate-600" : "bg-emerald-100 text-emerald-700"
-                    )}>
-                      {o.paymentMode === 'Counter' ? 'COUNTER' : 'ONLINE'}
-                  </span>
-                </div>
-                <ul className="space-y-1 mb-4">
-                    {o.items && o.items.length > 0 ? o.items.map((i, idx) => (
-                      <li key={idx} className="text-sm flex justify-between text-slate-600">
-                        <span className="font-medium">{i.quantity}x {i.name}</span>
-                      </li>
-                    )) : (
-                      <li className="text-sm italic opacity-50">Items logged</li>
-                    )}
-                </ul>
-                <div className="mt-auto pt-2">
-                  <button className="w-full py-2 bg-slate-200 text-slate-500 rounded-xl text-sm font-bold cursor-not-allowed">
-                    {o.status === 'Completed' ? 'Collected' : 'Waiting for Pickup'}
-                  </button>
-                </div>
-              </div>
-            ))}
           </div>
         </div>
 
-        {/* Right Column Stacks */}
-        <div className="col-span-1 sm:col-span-4 sm:row-span-3 bg-white rounded-3xl border border-slate-100 shadow-sm p-6 flex flex-col min-h-[250px]">
-          <h4 className="text-sm font-bold text-slate-800 mb-4 flex items-center tracking-tight">
-            Pending Billing
-            <span className="ml-auto text-primary-600 bg-primary-50 px-2 py-0.5 rounded-full text-[10px] uppercase tracking-wider font-bold">
-              {pendingBills.length} BILLS
-            </span>
-          </h4>
-          <div className="space-y-3 flex-1 overflow-y-auto hide-scrollbar pr-1 content-start">
-            {pendingBills.length === 0 ? (
-               <div className="h-full flex items-center justify-center text-slate-400 font-medium text-sm opacity-70">
-                 No pending bills
-               </div>
-            ) : (
-              pendingBills.map(o => (
-                <div key={o.id} className="flex items-center justify-between p-3 rounded-xl border border-slate-100 bg-slate-50/50 hover:bg-slate-50 transition-colors">
-                  <div>
-                    <p className="font-bold text-sm text-slate-900 font-mono tracking-tight">{o.orderNumber}</p>
-                    <p className="text-[10px] text-slate-500 uppercase tracking-wider font-bold mt-0.5">{o.table}</p>
-                  </div>
-                  <div className="text-right flex flex-col items-end">
-                    <p className="font-bold text-sm text-slate-900">₹{o.totalAmount}</p>
-                    <button onClick={() => markPaid(o.id)} className="text-[10px] font-bold text-primary-600 hover:text-primary-700 mt-1 uppercase tracking-wider p-1 -mr-1">
-                      Mark Paid
+        {/* Right Column Stack */}
+        <div className="col-span-12 lg:col-span-4 flex flex-col gap-6">
+          
+          {/* Pending Billing */}
+          <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 lg:p-8 flex-1 flex flex-col min-h-[300px]">
+            <div className="flex items-center justify-between mb-6">
+              <h4 className="text-lg font-black text-slate-900 flex items-center gap-2">
+                <Banknote className="w-5 h-5 text-indigo-500" />
+                Pending Bills
+              </h4>
+              <span className="bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full text-xs font-black tracking-widest">
+                {pendingBills.length}
+              </span>
+            </div>
+            
+            <div className="space-y-3">
+              {pendingBills.length === 0 ? (
+                 <div className="py-12 flex items-center justify-center text-slate-400 font-medium text-sm bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                   No pending counter bills
+                 </div>
+              ) : (
+                pendingBills.map(o => (
+                  <div key={o.id} className="flex flex-col p-4 rounded-2xl border border-slate-100 bg-slate-50 hover:bg-white hover:border-indigo-100 hover:shadow-md transition-all group">
+                    <div className="flex justify-between items-start mb-2">
+                      <div>
+                        <p className="font-black text-lg text-slate-900 font-mono tracking-tight leading-none">#{o.orderNumber}</p>
+                        <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold mt-1.5">{o.table}</p>
+                      </div>
+                      <p className="font-black text-xl text-indigo-900 bg-indigo-50 px-3 py-1 rounded-lg">₹{o.totalAmount}</p>
+                    </div>
+                    <button onClick={() => markPaid(o.id)} className="w-full mt-2 py-2.5 bg-indigo-100/50 hover:bg-indigo-600 hover:text-white text-indigo-700 text-xs font-black rounded-xl uppercase tracking-widest transition-colors flex items-center justify-center gap-2">
+                      <Check className="w-3.5 h-3.5" /> Mark as Paid
                     </button>
                   </div>
-                </div>
-              ))
-            )}
+                ))
+              )}
+            </div>
           </div>
-        </div>
 
-        <div className="col-span-1 sm:col-span-4 sm:row-span-2 bg-slate-900 rounded-3xl p-6 text-white flex flex-col min-h-[200px] shadow-lg shadow-slate-900/10">
-          <h4 className="text-sm font-bold opacity-70 mb-4 tracking-wider uppercase text-slate-300">Recent Completed</h4>
-          <div className="space-y-3 flex-1 overflow-hidden">
-            {recentlyCompleted.length === 0 ? (
-               <div className="h-full flex items-center justify-center text-slate-500 font-medium text-sm">
-                 Waiting for completions
-               </div>
-            ) : (
-              recentlyCompleted.slice(0, 3).map((o, index) => (
-                <div key={o.id} className="flex items-center group">
-                  <span className="w-6 text-[10px] opacity-40 font-bold font-mono tracking-widest">{String(index + 1).padStart(2, '0')}</span>
-                  <span className="text-sm flex-1 font-medium text-slate-200 group-hover:text-white transition-colors">{o.orderNumber} <span className="opacity-40 text-[10px] ml-1 uppercase">{o.table}</span></span>
-                  <span className="text-sm font-bold text-emerald-400">₹{o.totalAmount}</span>
-                </div>
-              ))
-            )}
+          {/* Recent Completed */}
+          <div className="bg-slate-900 rounded-3xl p-6 lg:p-8 text-white shadow-xl shadow-slate-900/10 flex flex-col">
+            <h4 className="text-sm font-black opacity-80 mb-6 tracking-widest uppercase text-slate-300 flex items-center gap-2">
+              <Package className="w-4 h-4" /> Recent Completions
+            </h4>
+            <div className="space-y-4 flex-1">
+              {recentlyCompleted.length === 0 ? (
+                 <div className="py-8 flex items-center justify-center text-slate-500 font-medium text-sm border-t border-slate-800">
+                   Waiting for completions
+                 </div>
+              ) : (
+                recentlyCompleted.slice(0, 4).map((o, index) => (
+                  <div key={o.id} className="flex items-center group border-b border-slate-800 pb-3 last:border-0 last:pb-0">
+                    <span className="w-6 text-xs text-slate-600 font-black font-mono">{String(index + 1).padStart(2, '0')}</span>
+                    <div className="flex-1">
+                      <span className="text-sm font-bold text-slate-200 group-hover:text-white transition-colors block leading-none">#{o.orderNumber}</span>
+                      <span className="text-[10px] text-slate-500 uppercase tracking-widest font-bold mt-1 block">{o.table}</span>
+                    </div>
+                    <span className="text-sm font-black text-emerald-400 bg-emerald-400/10 px-2 py-1 rounded-md">₹{o.totalAmount}</span>
+                  </div>
+                ))
+              )}
+            </div>
+            <Link to="/manager/orders" className="mt-6 w-full text-center text-xs text-slate-400 hover:text-white font-black tracking-widest uppercase transition-colors p-3 bg-slate-800 hover:bg-slate-700 rounded-xl flex items-center justify-center gap-2">
+              View History <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
           </div>
-          <Link to="/manager/orders" className="mt-auto text-center text-[10px] text-primary-400 hover:text-primary-300 font-bold tracking-widest uppercase transition-colors p-2">
-            View All Completed
-          </Link>
-        </div>
 
+        </div>
       </div>
 
-      {/* Audio Interaction Simulation Tooltip (Status) */}
-      <div className="fixed bottom-6 right-6 bg-slate-800 text-white px-4 py-2.5 rounded-full shadow-2xl flex items-center space-x-2 text-xs font-bold tracking-wide border border-slate-700 z-50">
-        <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></span>
-        <span>Live Sync Active</span>
+      {/* Audio Interaction Tooltip */}
+      <div className="fixed bottom-6 right-6 bg-slate-900 text-white px-5 py-3 rounded-full shadow-2xl shadow-indigo-500/20 flex items-center space-x-3 text-xs font-bold tracking-widest uppercase border border-slate-800 z-50">
+        <span className="w-2.5 h-2.5 bg-emerald-400 rounded-full animate-pulse shadow-[0_0_10px_rgba(52,211,153,0.8)]"></span>
+        <span>System Active</span>
       </div>
     </div>
   );

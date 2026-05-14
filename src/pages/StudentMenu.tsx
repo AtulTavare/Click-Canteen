@@ -1,14 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { collection, query, where, getDocs, doc, runTransaction, writeBatch } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, runTransaction, writeBatch, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { Item, Banner, OrderItem, PaymentMode } from '../lib/types';
+import { Item, Banner, OrderItem, PaymentMode, CanteenSettings, Category } from '../lib/types';
 import { useAuth } from '../lib/auth';
 import { cn } from '../lib/utils';
-import { ShoppingBag, Minus, Plus, Utensils, CreditCard, Banknote, X, Loader2, ArrowRight } from 'lucide-react';
+import { ShoppingBag, Minus, Plus, Utensils, CreditCard, Banknote, X, Loader2, ArrowRight, Clock } from 'lucide-react';
 import AnalogClockPicker from '../components/AnalogClockPicker';
-// using analog clock for scheduled times
-
 
 export default function StudentMenu() {
   const { user } = useAuth();
@@ -20,6 +18,8 @@ export default function StudentMenu() {
 
   const [items, setItems] = useState<Item[]>([]);
   const [banners, setBanners] = useState<Banner[]>([]);
+  const [canteenSettings, setCanteenSettings] = useState<CanteenSettings | null>(null);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [currentBanner, setCurrentBanner] = useState(0);
   const [selectedCategory, setSelectedCategory] = useState(categoryParam || 'All');
   
@@ -52,9 +52,22 @@ export default function StudentMenu() {
   useEffect(() => {
     async function loadData() {
       try {
-        const itemSnap = await getDocs(collection(db, 'items'));
+        const catSnap = await getDocs(query(collection(db, 'categories'), where('active', '==', true)));
+        const c: Category[] = [];
+        catSnap.forEach(doc => c.push({ id: doc.id, ...doc.data() } as Category));
+        c.sort((a,b) => a.displayOrder - b.displayOrder);
+        setCategories(c);
+        
+        const activeCategoryNames = c.map(cat => cat.name);
+
+        const itemSnap = await getDocs(query(collection(db, 'items'), where('available', '==', true)));
         const i: Item[] = [];
-        itemSnap.forEach(doc => i.push({ id: doc.id, ...doc.data() } as Item));
+        itemSnap.forEach(doc => {
+           const item = { id: doc.id, ...doc.data() } as Item;
+           if (activeCategoryNames.includes(item.category)) {
+             i.push(item);
+           }
+        });
         setItems(i);
 
         const bannerSnap = await getDocs(query(collection(db, 'banners'), where('active', '==', true)));
@@ -68,6 +81,22 @@ export default function StudentMenu() {
       }
     }
     loadData();
+
+    // Listen to canteen settings
+    const unsub = onSnapshot(doc(db, 'settings', 'canteen'), (snap) => {
+      if (snap.exists()) {
+        setCanteenSettings(snap.data() as CanteenSettings);
+      } else {
+        // Fallback default
+        setCanteenSettings({
+          openTime: '09:00',
+          closeTime: '17:00',
+          activeDays: { mon: true, tue: true, wed: true, thu: true, fri: true, sat: false, sun: false }
+        });
+      }
+    });
+
+    return () => unsub();
   }, []);
 
   useEffect(() => {
@@ -79,7 +108,7 @@ export default function StudentMenu() {
     }
   }, [banners.length]);
 
-  const categories = ['All', ...Array.from(new Set(items.map(i => i.category)))];
+  const categoryTabs = ['All', ...categories.map(c => c.name)];
   
   const filteredItems = useMemo(() => {
     if (selectedCategory === 'All') return items;
@@ -197,6 +226,64 @@ export default function StudentMenu() {
     }
   };
 
+  const getCanteenState = () => {
+    if (!canteenSettings) return { isOpen: true }; // default while loading
+    const now = new Date();
+    const dayMap = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+    const currentDayStr = dayMap[now.getDay()] as keyof typeof canteenSettings.activeDays;
+    
+    const isOpenToday = canteenSettings.activeDays[currentDayStr];
+    
+    // Convert open and close to minutes
+    const [openH, openM] = canteenSettings.openTime.split(':').map(Number);
+    const [closeH, closeM] = canteenSettings.closeTime.split(':').map(Number);
+    
+    const currentMins = now.getHours() * 60 + now.getMinutes();
+    const openMins = openH * 60 + openM;
+    const closeMins = closeH * 60 + closeM;
+
+    const tOpen = new Date();
+    tOpen.setHours(openH, openM, 0, 0);
+    const timeStr = tOpen.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
+    if (!isOpenToday) {
+      // Find next open day
+      let checkIdx = (now.getDay() + 1) % 7;
+      let nextDayName = '';
+      const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      for (let i=0; i<7; i++) {
+        const dStr = dayMap[checkIdx] as keyof typeof canteenSettings.activeDays;
+        if (canteenSettings.activeDays[dStr]) {
+          nextDayName = dayNames[checkIdx];
+          break;
+        }
+        checkIdx = (checkIdx + 1) % 7;
+      }
+      return { 
+        isOpen: false, 
+        message: `Canteen is closed today. See you on ${nextDayName} at ${timeStr} 👋` 
+      };
+    }
+
+    if (currentMins < openMins) {
+      return { 
+        isOpen: false, 
+        message: `Canteen is closed right now. Opens today at ${timeStr} ☕`
+      };
+    }
+
+    if (currentMins > closeMins) {
+      return { 
+        isOpen: false, 
+        message: `Canteen is closed for today. See you tomorrow at ${timeStr} 🌙`
+      };
+    }
+
+    return { isOpen: true };
+  };
+
+  const canteenState = getCanteenState();
+
   if (fullLoading) {
     return <div className="h-screen flex items-center justify-center bg-gray-50"><Loader2 className="w-8 h-8 animate-spin text-primary-600"/></div>;
   }
@@ -206,6 +293,18 @@ export default function StudentMenu() {
 
   return (
     <div className="bg-gray-50 min-h-screen">
+      {!canteenState.isOpen && (
+        <div className="fixed inset-0 z-[100] bg-slate-900 flex flex-col justify-center items-center text-center p-6 px-10">
+          <div className="w-24 h-24 bg-slate-800 rounded-full flex items-center justify-center mb-6 shadow-xl border border-slate-700">
+             <Clock className="w-10 h-10 text-primary-400" />
+          </div>
+          <h2 className="text-3xl font-black text-white mb-2 tracking-tight">Canteen Closed</h2>
+          <p className="text-slate-300 text-lg font-medium max-w-[280px] leading-relaxed">
+            {canteenState.message}
+          </p>
+        </div>
+      )}
+
       <div className="flex items-center gap-2 px-4 mb-4">
          <div className="bg-primary-50 px-3 py-1.5 rounded-full text-xs font-black tracking-widest uppercase text-primary-600 shadow-sm border border-primary-100">
            {tableName}
@@ -240,7 +339,7 @@ export default function StudentMenu() {
 
         {/* Horizontal Category Tabs */}
         <div className="flex overflow-x-auto hide-scrollbar gap-2.5 mb-6 -mx-4 px-4 pb-2 snap-x">
-          {categories.map(c => (
+          {categoryTabs.map(c => (
             <button
               key={c}
               onClick={() => setSelectedCategory(c)}

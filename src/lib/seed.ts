@@ -25,17 +25,20 @@ const initialBanners = [
   { title: "Weekend Fiesta", description: "Try our new desserts!", active: false },
 ];
 
+const initialCategories = [
+  { name: 'Meals', description: 'Full course meals', displayOrder: 1, active: true },
+  { name: 'Snacks', description: 'Quick bites', displayOrder: 2, active: true },
+  { name: 'Drinks', description: 'Hot and cold drinks', displayOrder: 3, active: true },
+  { name: 'Beverages', description: 'Packaged beverages', displayOrder: 4, active: true },
+];
+
 export async function seedDatabase() {
   try {
-    try {
-      const isSeededSnapshot = await getDoc(doc(db, 'system', 'seed'));
-      if (isSeededSnapshot.exists() && isSeededSnapshot.data().seeded) {
-        console.log('Already seeded');
-        alert('Database is already seeded!');
-        return;
-      }
-    } catch(e) {
-      console.log('system/seed check ignored (permissions missing on fresh db?):', e);
+    const isSeededSnapshot = await getDoc(doc(db, 'system', 'seed2'));
+    if (isSeededSnapshot.exists() && isSeededSnapshot.data().seeded) {
+      console.log('Already seeded');
+      alert('Database is already seeded!');
+      return;
     }
 
     // Try to create accounts using Auth
@@ -109,8 +112,26 @@ export async function seedDatabase() {
         });
     }
 
+    // Categories
+    for (const cat of initialCategories) {
+        const catRef = doc(collection(db, 'categories'));
+        batch.set(catRef, {
+            ...cat,
+            imageUrl: 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=400&q=80'
+        });
+    }
+
+    // Canteen Settings
+    batch.set(doc(db, 'settings', 'canteen'), {
+      openTime: '09:00',
+      closeTime: '22:00',
+      activeDays: {
+        mon: true, tue: true, wed: true, thu: true, fri: true, sat: true, sun: false
+      }
+    });
+
     // Record seed
-    batch.set(doc(db, 'system', 'seed'), { seeded: true });
+    batch.set(doc(db, 'system', 'seed2'), { seeded: true });
     
     await batch.commit();
 

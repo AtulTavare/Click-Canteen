@@ -10,7 +10,6 @@ import ManagerOverview from '../components/ManagerOverview';
 import ManagerOrders from '../components/ManagerOrders';
 import ManagerAnalytics from '../components/ManagerAnalytics';
 import ManagerMenu from '../components/ManagerMenu';
-import ManagerAccounts from '../components/ManagerAccounts';
 
 export default function ManagerDashboard() {
   const location = useLocation();
@@ -39,7 +38,6 @@ export default function ManagerDashboard() {
     { name: 'Orders', path: '/manager/orders', icon: <ReceiptText className="w-5 h-5"/> },
     { name: 'Analytics', path: '/manager/analytics', icon: <BarChart3 className="w-5 h-5"/> },
     { name: 'Menu', path: '/manager/menu', icon: <MenuIcon className="w-5 h-5"/> },
-    { name: 'Accounts', path: '/manager/accounts', icon: <Users className="w-5 h-5"/> },
   ];
 
   return (
@@ -105,7 +103,6 @@ export default function ManagerDashboard() {
             <Route path="/orders" element={<ManagerOrders />} />
             <Route path="/analytics" element={<ManagerAnalytics />} />
             <Route path="/menu/*" element={<ManagerMenu />} />
-            <Route path="/accounts" element={<ManagerAccounts />} />
           </Routes>
         </div>
       </main>

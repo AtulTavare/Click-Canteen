@@ -1,16 +1,16 @@
 import React, { useEffect, useState } from 'react';
-import { collection, getDocs, query, where } from 'firebase/firestore';
+import { collection, getDocs, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { Item } from '../lib/types';
-import { Utensils, Coffee, Pizza, Croissant } from 'lucide-react';
+import { Item, Category } from '../lib/types';
 import { useNavigate } from 'react-router-dom';
 
 export default function Categories() {
-  const [categories, setCategories] = useState<{name: string, count: number, icon: any}[]>([]);
+  const [categories, setCategories] = useState<(Category & { count: number })[]>([]);
   const navigate = useNavigate();
 
   useEffect(() => {
     async function load() {
+      // Fetch items
       const q = query(collection(db, 'items'), where('available', '==', true));
       const snap = await getDocs(q);
       const items: Item[] = [];
@@ -21,20 +21,20 @@ export default function Categories() {
         counts[item.category] = (counts[item.category] || 0) + 1;
       });
 
-      const iconMap: Record<string, any> = {
-        'Meals': <Utensils className="w-8 h-8" />,
-        'Snacks': <Pizza className="w-8 h-8" />,
-        'Drinks': <Coffee className="w-8 h-8" />,
-        'Beverages': <Coffee className="w-8 h-8" />,
-      };
+      // Fetch active categories
+      const cQ = query(collection(db, 'categories'), where('active', '==', true));
+      const cSnap = await getDocs(cQ);
+      const cats: Category[] = [];
+      cSnap.forEach(d => cats.push({ id: d.id, ...d.data() } as Category));
       
-      const catsData = Object.keys(counts).map(c => ({
-        name: c,
-        count: counts[c],
-        icon: iconMap[c] || <Utensils className="w-8 h-8" />
+      cats.sort((a,b) => a.displayOrder - b.displayOrder);
+      
+      const enrichedCats = cats.map(c => ({
+        ...c,
+        count: counts[c.name] || 0
       }));
 
-      setCategories(catsData);
+      setCategories(enrichedCats);
     }
     load();
   }, []);
@@ -46,21 +46,18 @@ export default function Categories() {
       </header>
 
       <main className="max-w-md mx-auto p-4 pt-6 space-y-4">
-        {categories.map((cat, idx) => {
-          const colors = ['text-blue-600 bg-blue-50', 'text-amber-600 bg-amber-50', 'text-emerald-600 bg-emerald-50', 'text-purple-600 bg-purple-50'];
-          const colorClass = colors[idx % colors.length];
-
+        {categories.map((cat) => {
           return (
             <div 
-              key={cat.name} 
+              key={cat.id} 
               onClick={() => navigate(`/menu?category=${encodeURIComponent(cat.name)}`)}
-              className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-5 cursor-pointer hover:border-primary-200 transition-colors active:scale-95 duration-200"
+              className="bg-white p-4 rounded-[2rem] border border-slate-100 shadow-sm flex items-center gap-5 cursor-pointer hover:border-indigo-200 transition-colors active:scale-[0.98] duration-200"
             >
-              <div className={`p-4 rounded-2xl ${colorClass}`}>
-                {cat.icon}
+              <div className="w-20 h-20 rounded-[1.5rem] overflow-hidden bg-slate-100 shrink-0">
+                <img src={cat.imageUrl} alt={cat.name} className="w-full h-full object-cover" />
               </div>
               <div className="flex-1">
-                <h3 className="text-xl font-bold text-slate-800 tracking-tight">{cat.name}</h3>
+                <h3 className="text-xl font-bold text-slate-900 tracking-tight">{cat.name}</h3>
                 <p className="text-sm text-slate-500 mt-1 font-medium">{cat.count} Items Available</p>
               </div>
             </div>
